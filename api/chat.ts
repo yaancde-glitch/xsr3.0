@@ -1,10 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { kv } from '@vercel/kv';
 
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
-  // CORS Handling
+  // 1. 设置 CORS (允许前端跨域访问)
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -13,35 +14,58 @@ export default async function handler(
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
   );
 
+  // 2. 处理预检请求 (OPTIONS)
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
 
+  // 3. 限制只允许 POST 请求
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const { message, cardCode, systemInstruction } = req.body;
-
-  // 1. Card Key Verification
-  const SERVER_CARD_KEY = process.env.CARD_KEY;
-  
-  // If CARD_KEY is set on server, enforce it.
-  if (SERVER_CARD_KEY) {
-    if (!cardCode || cardCode !== SERVER_CARD_KEY) {
-      return res.status(401).json({ error: "无效的卡密 (Invalid Card Key)" });
-    }
-  }
-
-  // 2. DeepSeek API Call
-  const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-  if (!DEEPSEEK_API_KEY) {
-     console.error("DEEPSEEK_API_KEY is not set");
-     return res.status(500).json({ error: "Server API configuration error." });
-  }
-
   try {
+    const { message, cardCode, systemInstruction } = req.body;
+
+    // ===========================
+    // 💰 核心商业化逻辑开始
+    // ===========================
+
+    // A. 检查是否提供了卡密
+    if (!cardCode) {
+      return res.status(401).json({ error: "请输入使用卡密" });
+    }
+
+    // B. 去数据库查询卡密余额
+    // 注意：如果是第一次连接，这一步可能会报错，等第三步配置好数据库就没事了
+    const remainingUses = await kv.get<number>(cardCode);
+
+    // C. 验证卡密是否存在
+    if (remainingUses === null) {
+      return res.status(401).json({ error: "卡密无效，请核对或联系客服" });
+    }
+
+    // D. 验证余额是否充足
+    if (remainingUses <= 0) {
+      return res.status(403).json({ error: "您的卡密次数已用完，请重新购买" });
+    }
+
+    // E. 扣费 (次数 - 1)
+    await kv.decr(cardCode);
+
+    // ===========================
+    // 💰 核心商业化逻辑结束 (验证通过)
+    // ===========================
+
+
+    // 4. 调用 DeepSeek API
+    const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+    
+    if (!DEEPSEEK_API_KEY) {
+        throw new Error("服务器未配置 DEEPSEEK_API_KEY");
+    }
+
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
@@ -54,17 +78,16 @@ export default async function handler(
           { role: "system", content: systemInstruction || "You are a helpful assistant." },
           { role: "user", content: message }
         ],
-        response_format: {
-          type: "json_object"
-        },
-        temperature: 1.1 // Slightly creative for naming
+        response_format: { type: "json_object" },
+        temperature: 1.1
       })
     });
 
+    // 5. 处理 DeepSeek 的响应
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("DeepSeek API Error:", errorText);
-      return res.status(response.status).json({ error: "AI Provider Error", details: errorText });
+        const errorText = await response.text();
+        console.error("DeepSeek API Error:", errorText);
+        return res.status(response.status).json({ error: "AI生成失败，请稍后再试", details: errorText });
     }
 
     const data = await response.json();
@@ -72,6 +95,6 @@ export default async function handler(
 
   } catch (error: any) {
     console.error("Server Error:", error);
-    return res.status(500).json({ error: "Internal Server Error", details: error.message });
+    return res.status(500).json({ error: error.message || "服务器内部错误" });
   }
 }
