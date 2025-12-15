@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node'; 
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kv } from '@vercel/kv';
 
 export default async function handler(
@@ -38,7 +38,6 @@ export default async function handler(
     }
 
     // B. 去数据库查询卡密余额
-    // 注意：如果是第一次连接，这一步可能会报错，等第三步配置好数据库就没事了
     const remainingUses = await kv.get<number>(cardCode);
 
     // C. 验证卡密是否存在
@@ -55,7 +54,7 @@ export default async function handler(
     await kv.decr(cardCode);
 
     // ===========================
-    // 💰 核心商业化逻辑结束 (验证通过)
+    // 💰 核心商业化逻辑结束
     // ===========================
 
 
@@ -66,20 +65,26 @@ export default async function handler(
         throw new Error("服务器未配置 DEEPSEEK_API_KEY");
     }
 
+    // 【修改点1】生成随机 ID，用于打破 AI 的缓存惯性
+    const randomId = Math.random().toString(36).substring(7) + Date.now().toString();
+
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
       },
+      // 【修改点2】防止 Vercel 边缘网络缓存此请求
+      cache: 'no-store',
       body: JSON.stringify({
         model: "deepseek-chat",
         messages: [
           { role: "system", content: systemInstruction || "You are a helpful assistant." },
-          { role: "user", content: message }
+          // 【修改点3】将随机 ID 加入 content，让 AI 认为这是一个全新的请求
+          { role: "user", content: `${message}\n\n(System_Request_ID: ${randomId})` }
         ],
         response_format: { type: "json_object" },
-        temperature: 1.1
+        temperature: 1.2 // 【修改点4】稍微调高一点温度，增加创造性
       })
     });
 
