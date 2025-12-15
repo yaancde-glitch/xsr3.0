@@ -143,7 +143,7 @@ const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading }) => {
               name="additionalNotes"
               value={formData.additionalNotes}
               onChange={handleChange}
-              placeholder="例如：可输入辈分字、忌讳字等，需要写清楚如：姓名中间：德。..."
+              placeholder="例如：可输入辈分字、忌讳字等，需要写清楚如：辈分字：德..."
               rows={2}
               className="w-full pl-10 pr-4 py-3 rounded-xl bg-stone-50 border border-stone-200 focus:ring-2 focus:ring-amber-200 outline-none text-sm resize-none"
             />
