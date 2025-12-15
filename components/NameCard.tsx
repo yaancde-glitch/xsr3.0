@@ -213,7 +213,7 @@ const FortuneCard = ({ icon, title, subtitle, desc }: { icon: string, title: str
            <span className="text-xs text-stone-400">{title}</span>
            <span className="text-base font-bold text-stone-800">{subtitle}</span>
         </div>
-        <p className="text-xs text-stone-500 leading-relaxed line-clamp-3">
+        <p className="text-xs text-stone-500 leading-relaxed ">
            {desc}
         </p>
      </div>
